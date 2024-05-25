@@ -1,9 +1,7 @@
-use std::fs::File;
-use std::io::{self, Cursor, Read, Write};
-use std::path::Path;
 use image::io::Reader as ImageReader;
-use image::DynamicImage;
+use rayon::prelude::*;
 use rouille::{post_input, router, try_or_400};
+use std::io::{self, Cursor, Write};
 use zip::write::SimpleFileOptions;
 
 static FORM: &'static str = r###"
@@ -47,8 +45,7 @@ fn main() {
     http_server(8080);
 }
 
-fn http_server(port: u16){
-
+fn http_server(port: u16) {
     rouille::start_server_with_pool(format!("0.0.0.0:{}", port), Some(8), move |request| {
         rouille::log(&request, io::stdout(), || {
             router!(request,
@@ -63,16 +60,12 @@ fn http_server(port: u16){
 
                     let image = &data.files.get(0).unwrap().data;
 
-                    println!("Tileing");
                     let tiles = tile_image(image.to_vec(), data.width).unwrap();
-                    println!("Tiled");
 
 
                     let mut buf: Vec<u8> = Vec::new(); // Declare buf as mutable
 
-                    println!("Writing");
                     write_tile_zip(&mut buf, tiles).unwrap();
-                    println!("Written");
 
                     let resp = rouille::Response::from_data("application/x-zip", buf).with_content_disposition_attachment("tiles.zip");
 
@@ -85,21 +78,18 @@ fn http_server(port: u16){
     });
 }
 
-// fn write_tile_zip_path(path: &Path, tiles: Vec<Vec<DynamicImage>>) -> Result<(), Box<dyn std::error::Error>> {
-//     let file = File::create(path)?;
-
-//     return write_tile_zip(file, tiles);
-// }
-
-fn write_tile_zip(buf: &mut Vec<u8>, tiles: Vec<Vec<Vec<u8>>>) -> Result<(), Box<dyn std::error::Error>> {
+fn write_tile_zip(
+    buf: &mut Vec<u8>,
+    tiles: Vec<Vec<Vec<u8>>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut zip = zip::ZipWriter::new(Cursor::new(buf));
 
     for (y, row) in tiles.iter().enumerate() {
         for (x, tile) in row.iter().enumerate() {
-
-            // We now have a byte vector, `bytes`, containing the tile. We need to write it to the zip.
-
-            zip.start_file(format!("tile_{}_{}.png", y, x), SimpleFileOptions::default())?;
+            zip.start_file(
+                format!("tile_{}_{}.png", y, x),
+                SimpleFileOptions::default(),
+            )?;
             zip.write_all(tile)?;
         }
     }
@@ -109,40 +99,40 @@ fn write_tile_zip(buf: &mut Vec<u8>, tiles: Vec<Vec<Vec<u8>>>) -> Result<(), Box
     Ok(())
 }
 
-fn tile_image_path(path: &Path, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>>{
-    let mut buf: Vec<u8> = Vec::new();
+fn tile_image(
+    bytes: Vec<u8>,
+    tile_size: u32,
+) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>> {
+    let img = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()?
+        .decode()?;
 
-    File::open(path)?.read(&mut buf)?;
-
-    tile_image(buf, tile_size)
-
-}
-
-use rayon::prelude::*;
-
-fn tile_image(bytes: Vec<u8>, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>> {
-    let img = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
-    
     let num_rows = (img.height() as f32 / tile_size as f32).ceil() as u32;
     let num_cols = (img.width() as f32 / tile_size as f32).ceil() as u32;
-    
-    let tiles: Vec<Vec<Vec<u8>>> = (0..(num_rows * num_cols)).into_par_iter().map(|i| {
-        let y = i / num_cols;
-        let x = i % num_cols;
-        
-        let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
-        let mut tile_bytes = Vec::new();
-        tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png).unwrap();
-        
-        (x, tile_bytes)
-    }).collect::<Vec<_>>().into_iter().fold(Vec::new(), |mut acc, (x, tile_bytes)| {
-        if x == 0 {
-            acc.push(Vec::new());
-        }
-        
-        acc.last_mut().unwrap().push(tile_bytes);
-        acc
-    });
-    
+
+    let tiles: Vec<Vec<Vec<u8>>> = (0..(num_rows * num_cols))
+        .into_par_iter()
+        .map(|i| {
+            let y = i / num_cols;
+            let x = i % num_cols;
+
+            let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
+            let mut tile_bytes = Vec::new();
+            tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png)
+                .unwrap();
+
+            (x, tile_bytes)
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .fold(Vec::new(), |mut acc, (x, tile_bytes)| {
+            if x == 0 {
+                acc.push(Vec::new());
+            }
+
+            acc.last_mut().unwrap().push(tile_bytes);
+            acc
+        });
+
     Ok(tiles)
 }
