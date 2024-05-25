@@ -19,7 +19,7 @@ static FORM: &'static str = r###"
         <div>
             <p>Upload an image and choose a tile size (in pixels) to split your image into tiles. </p>
 
-            <p>Tyler will generate a zip file of images, named <pre>tile_{col-num}_{row-num}.png</pre>.
+            <p>Tyler will generate a zip file of images, named <code>tile_{col-num}_{row-num}.png</code>.
         </div>
         
         <div>
@@ -44,14 +44,7 @@ static FORM: &'static str = r###"
 "###;
 
 fn main() {
-    // let path = Path::new("starters.png");
-
-    // let tiles = tile_image(&path, 128).unwrap();
-
-    // write_tile_zip(Path::new("tiles.zip"), tiles).unwrap();
-
     http_server(8080);
-
 }
 
 fn http_server(port: u16){
@@ -95,20 +88,16 @@ fn http_server(port: u16){
 //     return write_tile_zip(file, tiles);
 // }
 
-fn write_tile_zip(buf: &mut Vec<u8>, tiles: Vec<Vec<DynamicImage>>) -> Result<(), Box<dyn std::error::Error>> {
+fn write_tile_zip(buf: &mut Vec<u8>, tiles: Vec<Vec<Vec<u8>>>) -> Result<(), Box<dyn std::error::Error>> {
     let mut zip = zip::ZipWriter::new(Cursor::new(buf));
 
     for (y, row) in tiles.iter().enumerate() {
         for (x, tile) in row.iter().enumerate() {
 
-            let mut bytes: Vec<u8> = Vec::new();
-
-            tile.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)?;
-
             // We now have a byte vector, `bytes`, containing the tile. We need to write it to the zip.
 
             zip.start_file(format!("tile_{}_{}.png", y, x), SimpleFileOptions::default())?;
-            zip.write_all(&mut bytes)?;
+            zip.write_all(tile)?;
         }
     }
 
@@ -117,7 +106,7 @@ fn write_tile_zip(buf: &mut Vec<u8>, tiles: Vec<Vec<DynamicImage>>) -> Result<()
     Ok(())
 }
 
-fn tile_image_path(path: &Path, tile_size: u32) -> Result<Vec<Vec<DynamicImage>>, Box<dyn std::error::Error>>{
+fn tile_image_path(path: &Path, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>>{
     let mut buf: Vec<u8> = Vec::new();
 
     File::open(path)?.read(&mut buf)?;
@@ -127,22 +116,24 @@ fn tile_image_path(path: &Path, tile_size: u32) -> Result<Vec<Vec<DynamicImage>>
 }
 
 
-fn tile_image(bytes: Vec<u8>, tile_size: u32) -> Result<Vec<Vec<DynamicImage>>, Box<dyn std::error::Error>> {
+fn tile_image(bytes: Vec<u8>, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>> {
     let img = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
-
+    
     let mut tiles = Vec::new();
-
+    
     let num_rows = (img.height() as f32 / tile_size as f32).ceil() as u32;
     let num_cols = (img.width() as f32 / tile_size as f32).ceil() as u32;
-
+    
     for y in 0..num_rows {
         let mut row = Vec::new();
         for x in 0..num_cols {
             let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
-            row.push(tile.to_owned());
+            let mut tile_bytes = Vec::new();
+            tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png)?;
+            row.push(tile_bytes);
         }
         tiles.push(row);
     }
-
+    
     Ok(tiles)
 }
