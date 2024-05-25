@@ -1571,6 +1571,7 @@ name = "tyler"
 version = "0.1.0"
 dependencies = [
  "image",
+ "rayon",
  "rouille",
  "zip",
 ]

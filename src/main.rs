@@ -118,29 +118,31 @@ fn tile_image_path(path: &Path, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box
 
 }
 
+use rayon::prelude::*;
 
 fn tile_image(bytes: Vec<u8>, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<dyn std::error::Error>> {
     let img = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?;
     
-    let mut tiles = Vec::new();
-    
     let num_rows = (img.height() as f32 / tile_size as f32).ceil() as u32;
     let num_cols = (img.width() as f32 / tile_size as f32).ceil() as u32;
     
-    for i in 0..(num_rows * num_cols) {
+    let tiles: Vec<Vec<Vec<u8>>> = (0..(num_rows * num_cols)).into_par_iter().map(|i| {
         let y = i / num_cols;
         let x = i % num_cols;
         
         let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
         let mut tile_bytes = Vec::new();
-        tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png)?;
+        tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png).unwrap();
         
+        (x, tile_bytes)
+    }).collect::<Vec<_>>().into_iter().fold(Vec::new(), |mut acc, (x, tile_bytes)| {
         if x == 0 {
-            tiles.push(Vec::new());
+            acc.push(Vec::new());
         }
         
-        tiles.last_mut().unwrap().push(tile_bytes);
-    }
+        acc.last_mut().unwrap().push(tile_bytes);
+        acc
+    });
     
     Ok(tiles)
 }
