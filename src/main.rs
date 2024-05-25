@@ -61,15 +61,18 @@ fn http_server(port: u16){
                         files: Vec<rouille::input::post::BufferedFile>,
                     }));
 
-                    println!("{}", data.width);
-
                     let image = &data.files.get(0).unwrap().data;
 
+                    println!("Tileing");
                     let tiles = tile_image(image.to_vec(), data.width).unwrap();
+                    println!("Tiled");
+
 
                     let mut buf: Vec<u8> = Vec::new(); // Declare buf as mutable
 
+                    println!("Writing");
                     write_tile_zip(&mut buf, tiles).unwrap();
+                    println!("Written");
 
                     let resp = rouille::Response::from_data("application/x-zip", buf).with_content_disposition_attachment("tiles.zip");
 
@@ -124,15 +127,19 @@ fn tile_image(bytes: Vec<u8>, tile_size: u32) -> Result<Vec<Vec<Vec<u8>>>, Box<d
     let num_rows = (img.height() as f32 / tile_size as f32).ceil() as u32;
     let num_cols = (img.width() as f32 / tile_size as f32).ceil() as u32;
     
-    for y in 0..num_rows {
-        let mut row = Vec::new();
-        for x in 0..num_cols {
-            let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
-            let mut tile_bytes = Vec::new();
-            tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png)?;
-            row.push(tile_bytes);
+    for i in 0..(num_rows * num_cols) {
+        let y = i / num_cols;
+        let x = i % num_cols;
+        
+        let tile = img.crop_imm(x * tile_size, y * tile_size, tile_size, tile_size);
+        let mut tile_bytes = Vec::new();
+        tile.write_to(&mut Cursor::new(&mut tile_bytes), image::ImageFormat::Png)?;
+        
+        if x == 0 {
+            tiles.push(Vec::new());
         }
-        tiles.push(row);
+        
+        tiles.last_mut().unwrap().push(tile_bytes);
     }
     
     Ok(tiles)
